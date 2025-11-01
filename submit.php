@@ -370,9 +370,67 @@ if (preg_match("/^enum\(\'(.*)\'\)$/", $categories['Type'], $matches)) {
         </form>
     </div>
     
+    <!-- Include Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Custom Map Handler -->
+    <script src="/assets/js/map-handler.js"></script>
     <script>
+        // Handle form submission
+        document.getElementById('placeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const form = e.target;
+            const formData = new FormData(form);
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalBtnText = submitBtn.innerHTML;
+            
+            try {
+                // Show loading state
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Submitting...';
+                
+                // Submit form via fetch API
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Redirect to success page
+                    window.location.href = '/submit_success.php';
+                } else {
+                    // Show error message
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'alert alert-danger mt-3';
+                    errorDiv.textContent = result.message || 'An error occurred. Please try again.';
+                    
+                    const existingAlert = form.querySelector('.alert-danger');
+                    if (existingAlert) {
+                        existingAlert.replaceWith(errorDiv);
+                    } else {
+                        form.prepend(errorDiv);
+                    }
+                    
+                    // Scroll to error
+                    errorDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } catch (error) {
+                console.error('Submission error:', error);
+                alert('An error occurred while submitting the form. Please try again.');
+            } finally {
+                // Reset button state
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            }
+        });
+
         // Character counter for description
         document.getElementById('description').addEventListener('input', function() {
             const remaining = 500 - this.value.length;
@@ -710,6 +768,65 @@ if (preg_match("/^enum\(\'(.*)\'\)$/", $categories['Type'], $matches)) {
                 video.src = URL.createObjectURL(file);
             }
         });
+        
+        // Image preview handler
+        document.getElementById('image_upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('imagePreview');
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    document.querySelector('.image-preview-container').classList.remove('d-none');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Handle image URL input
+        document.getElementById('image_url').addEventListener('change', function() {
+            const url = this.value.trim();
+            if (url) {
+                document.getElementById('imagePreview').src = url;
+                document.getElementById('imagePreview').style.display = 'block';
+                document.querySelector('.image-preview-container').classList.remove('d-none');
+            }
+        });
+        
+        // Handle state and city dropdowns
+        const stateSelect = document.getElementById('state');
+        const citySelect = document.getElementById('city');
+        
+        if (stateSelect) {
+            stateSelect.addEventListener('change', async function() {
+                const stateId = this.value;
+                if (!stateId) {
+                    citySelect.innerHTML = '<option value="">Select a city</option>';
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(`/api/get_cities.php?state_id=${stateId}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.data.length > 0) {
+                        citySelect.innerHTML = '<option value="">Select a city</option>';
+                        data.data.forEach(city => {
+                            const option = document.createElement('option');
+                            option.value = city.id;
+                            option.textContent = city.name;
+                            citySelect.appendChild(option);
+                        });
+                    } else {
+                        citySelect.innerHTML = '<option value="">No cities found</option>';
+                    }
+                } catch (error) {
+                    console.error('Error loading cities:', error);
+                    citySelect.innerHTML = '<option value="">Error loading cities</option>';
+                }
+            });
+        }
         
         // Initialize the map when the page loads
         document.addEventListener('DOMContentLoaded', initMap);
