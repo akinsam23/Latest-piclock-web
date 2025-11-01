@@ -1,6 +1,34 @@
 <?php
 // includes/header.php
+
+// Set security headers
+header('X-Frame-Options: SAMEORIGIN');
+header('X-Content-Type-Options: nosniff');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
+// Add Content Security Policy
+$csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
+    "img-src 'self' data: https: http:",
+    "font-src 'self' https://cdn.jsdelivr.net https://unpkg.com",
+    "connect-src 'self'"
+];
+
+header("Content-Security-Policy: " . implode('; ', $csp));
+
+// Get flash messages
+$flashMessages = '';
+if (file_exists(__DIR__ . '/FlashMessage.php')) {
+    require_once __DIR__ . '/FlashMessage.php';
+    if (class_exists('FlashMessage')) {
+        $flashMessages = FlashMessage::display();
+    }
+}
 ?>
+
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
         <a class="navbar-brand" href="/">Local Places</a>

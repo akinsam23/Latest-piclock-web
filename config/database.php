@@ -1,15 +1,19 @@
 <?php
 // config/database.php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/../includes/DatabaseHelper.php';
+require_once __DIR__ . '/../includes/EnvLoader.php';
 
 class Database {
     private static $instance = null;
     private $connection;
+    private $dbHelper;
     private $config;
 
     private function __construct() {
         $this->config = require __DIR__ . '/config.php';
         $this->connect();
+        $this->dbHelper = new DatabaseHelper($this->connection);
     }
 
     public static function getInstance() {
@@ -17,6 +21,14 @@ class Database {
             self::$instance = new self();
         }
         return self::$instance;
+    }
+    
+    /**
+     * Get the database helper instance
+     * @return DatabaseHelper
+     */
+    public function getHelper() {
+        return $this->dbHelper;
     }
 
     private function connect() {

@@ -3,31 +3,45 @@
 return [
     'app' => [
         'name' => 'LocalPulse',
-        'url' => 'http://localhost', // Update this in production
+        'url' => 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost'),
         'timezone' => 'UTC',
-        'debug' => true, // Set to false in production
+        'debug' => $_ENV['APP_DEBUG'] ?? false,
+        'env' => $_ENV['APP_ENV'] ?? 'production',
     ],
+    
+    // Database configuration
     'db' => [
-        'host' => 'localhost',
-        'database' => 'piclock',
-        'username' => 'root',
-        'password' => '',
+        'host' => $_ENV['DB_HOST'] ?? 'localhost',
+        'database' => $_ENV['DB_DATABASE'] ?? 'piclock',
+        'username' => $_ENV['DB_USERNAME'] ?? 'root',
+        'password' => $_ENV['DB_PASSWORD'] ?? '',
         'charset' => 'utf8mb4',
         'collation' => 'utf8mb4_unicode_ci',
         'prefix' => '',
+        'options' => [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ],
     ],
+    
+    // Email configuration
     'mail' => [
-        'host' => 'smtp.example.com',
-        'port' => 587,
-        'username' => 'noreply@example.com',
-        'password' => 'email_password_here',
-        'from' => 'noreply@example.com',
-        'from_name' => 'LocalPulse',
+        'host' => $_ENV['MAIL_HOST'] ?? 'smtp.mailtrap.io',
+        'port' => (int) ($_ENV['MAIL_PORT'] ?? 2525),
+        'username' => $_ENV['MAIL_USERNAME'] ?? '',
+        'password' => $_ENV['MAIL_PASSWORD'] ?? '',
+        'from' => $_ENV['MAIL_FROM_ADDRESS'] ?? 'noreply@example.com',
+        'from_name' => $_ENV['MAIL_FROM_NAME'] ?? 'LocalPulse',
+        'encryption' => $_ENV['MAIL_ENCRYPTION'] ?? 'tls',
     ],
+    
+    // Storage configuration
     'storage' => [
         'path' => __DIR__ . '/../storage/uploads',
         'url' => '/storage/uploads',
-        'allowed_types' => ['jpg', 'jpeg', 'png', 'gif'],
+        'allowed_types' => ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+        'max_size' => 5 * 1024 * 1024, // 5MB
         'max_size' => 5 * 1024 * 1024, // 5MB
         'image_sizes' => [
             'thumbnail' => [150, 150],

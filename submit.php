@@ -1,148 +1,196 @@
 <?php
 // submit.php
-require_once 'config/database.php';
+require_once 'bootstrap.php';
 require_once 'includes/auth.php';
-requireLogin();
+require_once 'includes/FileUploader.php';
+require_once 'includes/InputValidator.php';
 
-$db = getDBConnection();
+// Check if user is logged in
+if (!isLoggedIn()) {
+    header('Location: login.php');
+    exit;
+}
+
+// Initialize variables
+$db = Database::getInstance()->getConnection();
+$dbHelper = Database::getInstance()->getHelper();
 $error = '';
 $success = '';
 
+// Initialize file uploader
+$fileUploader = new FileUploader();
+$fileUploader->setUploadDir(__DIR__ . '/uploads/' . date('Y/m/'));
+$fileUploader->setMaxFileSize(5 * 1024 * 1024); // 5MB
+
 // Get all approved places for nearby suggestions
-$places = $db->query("SELECT place_id, place_name, latitude, longitude FROM places WHERE status = 'approved'")->fetchAll();
+try {
+    $places = $dbHelper->fetchAll(
+        "SELECT place_id, place_name, latitude, longitude 
+         FROM places 
+         WHERE status = :status",
+        ['status' => 'approved']
+    );
+} catch (Exception $e) {
+    error_log("Error fetching places: " . $e->getMessage());
+    $places = [];
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validate CSRF token
-    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
-        $error = 'Invalid CSRF token. Please try again.';
+    if (!CsrfProtection::verifyRequest('submit_form')) {
+        $error = 'Invalid or expired form token. Please try again.';
+        http_response_code(403);
     } else {
+        // Initialize input validator
+        $validator = new InputValidator($_POST);
+
         // Validate inputs
-        $place_name = trim($_POST['place_name'] ?? '');
-        $description = trim($_POST['description'] ?? '');
-        $category = $_POST['category'] ?? '';
-        $latitude = floatval($_POST['latitude'] ?? 0);
-        $longitude = floatval($_POST['longitude'] ?? 0);
-        $city_region = trim($_POST['city_region'] ?? '');
-        $nearby_links = $_POST['nearby_links'] ?? [];
-        
-        // Basic validation
-        if (empty($place_name) || empty($description) || empty($category) || 
-            empty($latitude) || empty($longitude) || empty($city_region)) {
-            $error = 'All fields are required.';
-        } elseif (strlen($description) > 500) {
+        $validator
+            ->required('place_name', 'Place name')
+            ->length('place_name', 'Place name', 3, 255)
+            ->required('description', 'Description')
+            ->length('description', 'Description', 10, 2000)
+            ->required('category', 'Category')
+            ->required('latitude', 'Latitude')
+            ->numeric('latitude', 'Latitude', -90, 90)
+            ->required('longitude', 'Longitude')
+            ->numeric('longitude', 'Longitude', -180, 180)
+            ->required('city_region', 'City/Region');
+
+        // Get sanitized values
+        $placeData = [
+            'place_name' => InputValidator::sanitizeString($_POST['place_name'] ?? ''),
+            'description' => InputValidator::sanitizeString($_POST['description'] ?? ''),
+            'category' => InputValidator::sanitizeString($_POST['category'] ?? ''),
+            'latitude' => InputValidator::sanitizeFloat($_POST['latitude'] ?? 0),
+            'longitude' => InputValidator::sanitizeFloat($_POST['longitude'] ?? 0),
+            'city_region' => InputValidator::sanitizeString($_POST['city_region'] ?? ''),
+            'nearby_links' => is_array($_POST['nearby_links'] ?? []) ? 
+                array_map('intval', $_POST['nearby_links']) : []
+        ];
+
+        // Check validation errors
+        if (!$validator->isValid()) {
+            $errors = $validator->getErrors();
+            $error = 'Please correct the following errors: ' . implode(' ', $errors);
+        } elseif (strlen($placeData['description']) > 500) {
             $error = 'Description must be 500 characters or less.';
         } else {
             // Handle file uploads
-            $image_url = '';
-            $video_source = null;
-            
+            $image_path = '';
+
             // Handle image upload
             if (isset($_FILES['image_upload']) && $_FILES['image_upload']['error'] === UPLOAD_ERR_OK) {
-                $upload_dir = 'uploads/' . date('Y/m/');
-                if (!is_dir($upload_dir)) {
-                    mkdir($upload_dir, 0755, true);
-                }
-                
-                $file_extension = strtolower(pathinfo($_FILES['image_upload']['name'], PATHINFO_EXTENSION));
-                $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
-                
-                if (!in_array($file_extension, $allowed_extensions)) {
-                    $error = 'Invalid file type. Only JPG, PNG, and GIF are allowed.';
-                } else {
-                    $filename = uniqid() . '.' . $file_extension;
-                    $destination = $upload_dir . $filename;
-                    
-                    if (move_uploaded_file($_FILES['image_upload']['tmp_name'], $destination)) {
-                        $image_url = '/' . $destination;
+                try {
+                    $uploadedFile = $fileUploader->upload($_FILES['image_upload'], 'image');
+                    if ($uploadedFile) {
+                        $image_path = str_replace(__DIR__ . '/', '', $uploadedFile);
                     } else {
-                        $error = 'Failed to upload image.';
+                        $error = 'Failed to upload image: ' . implode(' ', $fileUploader->getErrors());
                     }
+                } catch (Exception $e) {
+                    error_log("File upload error: " . $e->getMessage());
+                    $error = 'An error occurred while uploading the image.';
                 }
-            } elseif (!empty($_POST['image_url'])) {
-                $image_url = filter_var($_POST['image_url'], FILTER_VALIDATE_URL);
-                if ($image_url === false) {
-                    $error = 'Invalid image URL.';
-                }
-            } else {
-                $error = 'Please provide either an image upload or URL.';
             }
-            
+
             // Handle video upload if no error so far and video was provided
             if (empty($error) && isset($_FILES['video_upload']) && $_FILES['video_upload']['error'] === UPLOAD_ERR_OK) {
-                $upload_dir = 'uploads/videos/' . date('Y/m/');
-                if (!is_dir($upload_dir)) {
-                    mkdir($upload_dir, 0755, true);
-                }
-                
-                $file_extension = strtolower(pathinfo($_FILES['video_upload']['name'], PATHINFO_EXTENSION));
-                $allowed_video_extensions = ['mp4', 'webm', 'ogg'];
-                
-                if (!in_array($file_extension, $allowed_video_extensions)) {
-                    $error = 'Invalid video file type. Only MP4, WebM, and OGG are allowed.';
-                } else {
-                    // Check file size (max 50MB)
-                    if ($_FILES['video_upload']['size'] > 50 * 1024 * 1024) {
-                        $error = 'Video file is too large. Maximum size is 50MB.';
+                try {
+                    $uploadedFile = $fileUploader->upload($_FILES['video_upload'], 'video');
+                    if ($uploadedFile) {
+                        $video_path = str_replace(__DIR__ . '/', '', $uploadedFile);
                     } else {
-                        $filename = uniqid() . '.' . $file_extension;
-                        $destination = $upload_dir . $filename;
-                        
-                        if (move_uploaded_file($_FILES['video_upload']['tmp_name'], $destination)) {
-                            $video_source = '/' . $destination;
-                        } else {
-                            $error = 'Failed to upload video.';
-                        }
+                        $error = 'Failed to upload video: ' . implode(' ', $fileUploader->getErrors());
                     }
+                } catch (Exception $e) {
+                    error_log("File upload error: " . $e->getMessage());
+                    $error = 'An error occurred while uploading the video.';
                 }
             } elseif (!empty($_POST['video_url'])) {
                 $video_url = filter_var($_POST['video_url'], FILTER_VALIDATE_URL);
                 if ($video_url === false) {
                     $error = 'Invalid video URL.';
                 } else {
-                    $video_source = $video_url;
+                    $video_path = $video_url;
                 }
             }
-            
+
             // If no errors, save to database
             if (empty($error)) {
                 try {
+                    // Start transaction
                     $db->beginTransaction();
-                    
+
                     // Insert the new place
-                    $stmt = $db->prepare("
-                        INSERT INTO places 
-                        (user_id, place_name, description, category, latitude, longitude, 
-                         image_url, video_source, city_region, nearby_links, status) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-                    ");
-                    
-                    $nearby_links_json = !empty($nearby_links) ? json_encode($nearby_links) : null;
-                    
-                    $stmt->execute([
-                        $_SESSION['user_id'],
-                        $place_name,
-                        $description,
-                        $category,
-                        $latitude,
-                        $longitude,
-                        $image_url,
-                        $video_source,
-                        $city_region,
-                        $nearby_links_json
-                    ]);
-                    
+                    $placeData['user_id'] = $_SESSION['user_id'] ?? null;
+                    $placeData['status'] = 'pending'; // or 'approved' based on your logic
+                    $placeData['created_at'] = date('Y-m-d H:i:s');
+                    $placeData['updated_at'] = date('Y-m-d H:i:s');
+
+                    if (!empty($image_path)) {
+                        $placeData['image_path'] = $image_path;
+                    }
+
+                    if (!empty($video_path)) {
+                        $placeData['video_path'] = $video_path;
+                    }
+
+                    $placeId = $dbHelper->execute(
+                        "INSERT INTO places 
+                         (place_name, description, category, latitude, longitude, city_region, 
+                          image_path, video_path, status, user_id, created_at, updated_at) 
+                         VALUES 
+                         (:place_name, :description, :category, :latitude, :longitude, :city_region, 
+                          :image_path, :video_path, :status, :user_id, :created_at, :updated_at)",
+                        $placeData
+                    );
+
+                    if (!$placeId) {
+                        throw new Exception("Failed to insert place");
+                    }
+
+                    // Handle nearby places
+                    if (!empty($placeData['nearby_links'])) {
+                        $relationStmt = $db->prepare("
+                            INSERT INTO place_relations 
+                            (place_id, related_place_id, relation_type, created_at) 
+                            VALUES (?, ?, 'nearby', NOW())
+                        ");
+
+                        foreach ($placeData['nearby_links'] as $relatedPlaceId) {
+                            if ($relatedPlaceId > 0) {
+                                $relationStmt->execute([$placeId, $relatedPlaceId]);
+                            }
+                        }
+                    }
+
                     $db->commit();
-                    
-                    $_SESSION['flash_message'] = 'Your submission has been received and is pending approval.';
-                    $_SESSION['flash_type'] = 'success';
-                    header('Location: /');
-                    exit();
-                    
-                } catch (PDOException $e) {
-                    $db->rollBack();
+
+                    // Regenerate session ID to prevent session fixation
+                    session_regenerate_id(true);
+
+                    // Set success message
+                    $_SESSION['flash_message'] = [
+                        'type' => 'success',
+                        'message' => 'Your place has been submitted successfully! It will be reviewed by our team.'
+                    ];
+
+                    header('Location: submit_success.php');
+                    exit;
+                } catch (Exception $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+
+                    // Log the error
+                    error_log("Submission error: " . $e->getMessage());
+
                     $error = 'An error occurred while saving your submission. Please try again.';
-                    error_log("Database error: " . $e->getMessage());
+                    if (getenv('APP_DEBUG') === 'true') {
+                        $error .= ' Debug: ' . $e->getMessage();
+                    }
                 }
             }
         }
@@ -150,9 +198,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get categories for the dropdown
-$categories = $db->query("SHOW COLUMNS FROM places WHERE Field = 'category'")->fetch(PDO::FETCH_ASSOC);
+$categories = $dbHelper->fetchAll("SHOW COLUMNS FROM places WHERE Field = 'category'");
 $category_options = [];
-if (preg_match("/^enum\(\'(.*)\'\)$/", $categories['Type'], $matches)) {
+if (preg_match("/^enum\(\'(.*)\'\)$/", $categories[0]['Type'], $matches)) {
     $category_options = explode("','", $matches[1]);
 }
 ?>
@@ -208,7 +256,7 @@ if (preg_match("/^enum\(\'(.*)\'\)$/", $categories['Type'], $matches)) {
         <?php endif; ?>
         
         <form method="POST" enctype="multipart/form-data" id="placeForm">
-            <input type="hidden" name="csrf_token" value="<?= generateCSRFToken() ?>">
+            <?= CsrfProtection::generateHiddenField('submit_form') ?>
             
             <div class="form-section">
                 <h4><i class="fas fa-info-circle me-2"></i>Basic Information</h4>
