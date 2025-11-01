@@ -42,7 +42,6 @@ return [
         'url' => '/storage/uploads',
         'allowed_types' => ['jpg', 'jpeg', 'png', 'gif', 'webp'],
         'max_size' => 5 * 1024 * 1024, // 5MB
-        'max_size' => 5 * 1024 * 1024, // 5MB
         'image_sizes' => [
             'thumbnail' => [150, 150],
             'medium' => [800, 600],
@@ -54,7 +53,7 @@ return [
         'password_algo' => PASSWORD_BCRYPT,
         'password_options' => ['cost' => 12],
         'csrf_token_name' => 'csrf_token',
-        'session_name' => 'localpulse_session',
+        'session_name' => 'piclock_session',
         'session_lifetime' => 60 * 60 * 24 * 30, // 30 days
     ],
     'cache' => [

@@ -62,11 +62,25 @@ class Database {
         // Check if connection is still alive
         try {
             $this->connection->query('SELECT 1');
+            return $this->connection;
         } catch (PDOException $e) {
-            $this->connect(); // Reconnect if connection was lost
+            // Log the connection issue
+            error_log("Database connection lost, attempting to reconnect: " . $e->getMessage());
+            
+            try {
+                $this->connect(); // Attempt to reconnect
+                return $this->connection;
+            } catch (PDOException $e) {
+                // Log the reconnection failure
+                error_log("Database reconnection failed: " . $e->getMessage());
+                
+                if ($this->config['app']['debug']) {
+                    throw new PDOException("Database connection failed: " . $e->getMessage());
+                } else {
+                    throw new PDOException("Unable to connect to the database. Please try again later.");
+                }
+            }
         }
-        
-        return $this->connection;
     }
 
     public function beginTransaction() {

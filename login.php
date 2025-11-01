@@ -1,7 +1,15 @@
 <?php
 // login.php
-require_once 'config/database.php';
+require_once 'bootstrap.php';
 require_once 'includes/auth.php';
+require_once 'includes/CsrfProtection.php';
+
+// Set security headers
+header('Content-Security-Policy: default-src \'self\'; script-src \'self\' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; object-src \'none\'');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
 
 // Redirect if already logged in
 if (isLoggedIn()) {
@@ -12,31 +20,37 @@ if (isLoggedIn()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-    
-    if (empty($username) || empty($password)) {
-        $error = 'Please enter both username and password.';
+    // Verify CSRF token
+    if (!CsrfProtection::verifyRequest('login_form')) {
+        $error = 'Invalid or expired form token. Please try again.';
+        http_response_code(403);
     } else {
-        $db = getDBConnection();
-        $stmt = $db->prepare("SELECT id, username, password_hash, is_admin FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        $user = $stmt->fetch();
-        
-        if ($user && password_verify($password, $user['password_hash'])) {
-            // Password is correct, start a new session
-            session_regenerate_id();
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['is_admin'] = (bool)$user['is_admin'];
-            
-            // Redirect to home page
-            $_SESSION['flash_message'] = 'You have been logged in successfully.';
-            $_SESSION['flash_type'] = 'success';
-            header('Location: /');
-            exit();
+        $username = trim($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+    
+        if (empty($username) || empty($password)) {
+            $error = 'Please enter both username and password.';
         } else {
-            $error = 'Invalid username or password.';
+            $db = getDBConnection();
+            $stmt = $db->prepare("SELECT id, username, password_hash, is_admin FROM users WHERE username = ?");
+            $stmt->execute([$username]);
+            $user = $stmt->fetch();
+        
+            if ($user && password_verify($password, $user['password_hash'])) {
+                // Password is correct, start a new session
+                session_regenerate_id();
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['is_admin'] = (bool)$user['is_admin'];
+            
+                // Redirect to home page
+                $_SESSION['flash_message'] = 'You have been logged in successfully.';
+                $_SESSION['flash_type'] = 'success';
+                header('Location: /');
+                exit();
+            } else {
+                $error = 'Invalid username or password.';
+            }
         }
     }
 }
@@ -110,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
             
             <form method="POST" action="/login.php">
+                <?= CsrfProtection::generateHiddenField('login_form') ?>
                 <div class="form-floating mb-3">
                     <input type="text" class="form-control" id="username" name="username" 
                            placeholder="Username" required autofocus

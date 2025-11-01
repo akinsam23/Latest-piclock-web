@@ -77,7 +77,7 @@ RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]
 php_flag display_errors off
 php_value error_reporting E_ALL
 php_value log_errors On
-php_value error_log /path/to/your/error.log  # Update this path
+php_value error_log "C:/xampp/htdocs/latest-piclock-web2/error.log"
 
 # Disable PHP version disclosure
 php_flag expose_php Off
