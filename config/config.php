@@ -9,9 +9,9 @@ return [
     ],
     'db' => [
         'host' => 'localhost',
-        'database' => 'localpulse',
-        'username' => 'localpulse_user',
-        'password' => 'secure_password_here', // Change this in production
+        'database' => 'piclock',
+        'username' => 'root',
+        'password' => '',
         'charset' => 'utf8mb4',
         'collation' => 'utf8mb4_unicode_ci',
         'prefix' => '',
